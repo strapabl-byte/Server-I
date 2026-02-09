@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Somatic Launcher | Live Monitor</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 Somatic Launcher</h1>
+            <p class="subtitle">Live Installation Monitor</p>
+        </header>
+
+        <div class="status-card">
+            <div id="status-indicator" class="status-indicator offline">
+                <div class="status-dot"></div>
+                <span id="status-text">OFFLINE</span>
+            </div>
+            <div id="health-badge" class="health-badge excellent">● EXCELLENT</div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Game Uptime</div>
+                <div id="uptime" class="stat-value">--:--:--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Process ID</div>
+                <div id="pid" class="stat-value">---</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Crashes (2m)</div>
+                <div id="crashes" class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Restarts</div>
+                <div id="restarts" class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Server Uptime</div>
+                <div id="server-uptime" class="stat-value">--:--:--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Update</div>
+                <div id="last-update" class="stat-value">Never</div>
+            </div>
+        </div>
+
+        <div class="logs-section">
+            <h2>Event Logs</h2>
+            <div id="log-container" class="log-container">
+                <div class="log-entry">
+                    <span class="log-time">--:--:--</span>
+                    <span class="log-message">Waiting for events...</span>
+                </div>
+            </div>
+            <div style="margin-top: 10px; text-align: right;">
+                <a id="download-logs-btn" href="#" class="download-btn" download
+                    style="text-decoration: none; background: #333; color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 0.8em;">⬇️
+                    Download Full Logs</a>
+            </div>
+        </div>
+
+        <footer>
+            <p>Machine: <span id="machine-id">---</span> | Game: <span id="game-name">---</span></p>
+        </footer>
+    </div>
+
+    <script>
+        let isOnline = false;
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+
+                const statusEl = document.getElementById('status-indicator');
+                const statusText = document.getElementById('status-text');
+                const healthBadge = document.getElementById('health-badge');
+
+                if (data.online) {
+                    isOnline = true;
+                    statusEl.className = 'status-indicator online';
+                    statusText.textContent = 'ONLINE';
+
+                    // Update stats
+                    document.getElementById('uptime').textContent = formatUptime(data.data.uptime_seconds || 0);
+                    document.getElementById('server-uptime').textContent = formatUptime(data.serverUptimeSeconds || 0);
+                    document.getElementById('pid').textContent = data.data.pid || '---';
+                    document.getElementById('crashes').textContent = data.data.crashes_120s || '0';
+                    document.getElementById('restarts').textContent = data.data.total_restarts || '0';
+                    document.getElementById('machine-id').textContent = data.data.machineId || '---';
+                    document.getElementById('game-name').textContent = data.data.exeName || '---';
+
+                    updateDownloadLink(data.data.machineId);
+
+                    // Last update
+                    if (data.lastUpdateTimestamp) {
+                        const updateDate = new Date(data.lastUpdateTimestamp);
+                        document.getElementById('last-update').textContent = updateDate.toLocaleTimeString();
+                    } else {
+                        document.getElementById('last-update').textContent = 'Just now';
+                    }
+
+                    // Health status
+                    const healthText = {
+                        'excellent': '● EXCELLENT',
+                        'good': '● GOOD',
+                        'warning': '⚠ WARNING',
+                        'critical': '⚠ CRITICAL'
+                    };
+                    healthBadge.textContent = healthText[data.health] || '● EXCELLENT';
+                    healthBadge.className = `health-badge ${data.health}`;
+                } else {
+                    if (isOnline) {
+                        // Just went offline
+                        console.log('Launcher went offline');
+                    }
+                    isOnline = false;
+                    statusEl.className = 'status-indicator offline';
+                    statusText.textContent = 'OFFLINE';
+                    healthBadge.textContent = '● OFFLINE';
+                    healthBadge.className = 'health-badge critical';
+                }
+            } catch (error) {
+                console.error('Status update error:', error);
+            }
+        }
+
+        async function updateLogs() {
+            try {
+                const response = await fetch('/logs');
+                const data = await response.json();
+                const logContainer = document.getElementById('log-container');
+
+                if (data.logs && data.logs.length > 0) {
+                    logContainer.innerHTML = data.logs.map(log => `
+                        <div class="log-entry">
+                            <span class="log-time">${log.time}</span>
+                            <span class="log-message">${escapeHtml(log.message)}</span>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Logs update error:', error);
+            }
+        }
+
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+            const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Update every 2 seconds
+        setInterval(updateStatus, 2000);
+        setInterval(updateLogs, 2000);
+        updateStatus();
+        updateLogs();
+    </script>
+</body>
+
+</html>
