@@ -157,6 +157,17 @@
             return `${h}:${m}:${s}`;
         }
 
+        function updateDownloadLink(machineId) {
+            const downloadBtn = document.getElementById('download-logs-btn');
+            if (machineId && machineId !== '---') {
+                const filename = `${machineId}_full_logs.txt`;
+                downloadBtn.href = `/download/${filename}`;
+                downloadBtn.style.display = 'inline-block';
+            } else {
+                downloadBtn.style.display = 'none';
+            }
+        }
+
         function escapeHtml(text) {
             const map = {
                 '&': '&amp;',
