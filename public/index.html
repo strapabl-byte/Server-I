@@ -28,7 +28,7 @@
                 <div class="stat-label">Game Uptime</div>
                 <div id="uptime" class="stat-value">--:--:--</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card pid-card">
                 <div class="stat-label">Process ID</div>
                 <div id="pid" class="stat-value">---</div>
             </div>
@@ -48,6 +48,14 @@
                 <div class="stat-label">Last Update</div>
                 <div id="last-update" class="stat-value">Never</div>
             </div>
+        </div>
+
+        <div id="heartbeat-section" class="heartbeat-section">
+            <div class="heartbeat-grid"></div>
+            <svg class="heartbeat-svg" viewBox="0 0 1000 100">
+                <path class="heartbeat-path"
+                    d="M0 50 L400 50 L410 40 L420 60 L430 10 L440 90 L450 40 L460 55 L470 50 L1000 50" />
+            </svg>
         </div>
 
         <div class="logs-section">
@@ -115,6 +123,14 @@
                     };
                     healthBadge.textContent = healthText[data.health] || '● EXCELLENT';
                     healthBadge.className = `health-badge ${data.health}`;
+
+                    // Toggle Heartbeat
+                    const heartbeatSection = document.getElementById('heartbeat-section');
+                    if (data.data.state === 'RUNNING') {
+                        heartbeatSection.classList.add('heartbeat-active');
+                    } else {
+                        heartbeatSection.classList.remove('heartbeat-active');
+                    }
                 } else {
                     if (isOnline) {
                         // Just went offline

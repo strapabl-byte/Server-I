@@ -64,6 +64,30 @@ app.post('/upload-logs', apiLimiter, authenticate, upload.single('logfile'), (re
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    // Read the file to extract last 5 lines
+    try {
+        const content = fs.readFileSync(req.file.path, 'utf8');
+        const lines = content.split(/\r?\n/).filter(line => line.trim() !== '');
+        const lastLines = lines.slice(-5);
+
+        lastLines.forEach(line => {
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                message: `📄 [FILE] ${line}`,
+                time: new Date().toLocaleTimeString(),
+                type: 'file-log'
+            };
+            eventLogs.unshift(logEntry);
+        });
+
+        if (eventLogs.length > MAX_LOGS) {
+            eventLogs = eventLogs.slice(0, MAX_LOGS);
+        }
+    } catch (err) {
+        console.error('[ERROR] Failed to read uploaded log file:', err);
+    }
+
     console.log(`[UPLOAD] Log file received: ${req.file.filename}`);
     res.json({ success: true, filename: req.file.filename });
 });
