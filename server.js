@@ -65,11 +65,11 @@ app.post('/upload-logs', apiLimiter, authenticate, upload.single('logfile'), (re
         return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Read the file to extract last 5 lines
+    // Read the file to extract last 3 lines
     try {
         const content = fs.readFileSync(req.file.path, 'utf8');
         const lines = content.split(/\r?\n/).filter(line => line.trim() !== '');
-        const lastLines = lines.slice(-5);
+        const lastLines = lines.slice(-3);
 
         lastLines.forEach(line => {
             const logEntry = {
