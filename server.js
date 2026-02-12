@@ -18,11 +18,11 @@ app.use(express.json());
 app.use(express.text());
 app.use(express.static('public'));
 
-// Debugging: Log all incoming requests
-app.use((req, res, next) => {
-    console.log(`[DEBUG] ${req.method} ${req.path}`);
-    next();
-});
+// Debugging: Log all incoming requests - SILENCED FOR PRODUCTION
+// app.use((req, res, next) => {
+//     console.log(`[DEBUG] ${req.method} ${req.path}`);
+//     next();
+// });
 
 // Configure Multer for file uploads
 const multer = require('multer');
@@ -285,11 +285,11 @@ app.get('/download/:filename', (req, res) => {
     }
 });
 
-// GET /status - Public status endpoint for dashboard
+// GET /status - Public status endpoint including logs and commands for optimized fetching
 app.get('/status', (req, res) => {
-    // Check if offline (no update in 15 seconds)
+    // Check if offline (no update in 45 seconds to handle Render latency)
     const timeSinceLast = Date.now() - currentStatus.lastUpdate;
-    const isOnline = timeSinceLast < 15000 && currentStatus.online;
+    const isOnline = timeSinceLast < 45000 && currentStatus.online;
 
     // Calculate server uptime
     const serverUptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
@@ -300,6 +300,43 @@ app.get('/status', (req, res) => {
     if (crashes >= 4) health = 'critical';
     else if (crashes >= 2) health = 'warning';
     else if (crashes >= 1) health = 'good';
+    if (!isOnline) health = 'offline';
+
+    // Get pending command for this machine (if any)
+    const machineId = currentStatus.data.machineId;
+    let command = null;
+    let autoRestart = null;
+
+    if (machineId) {
+        command = pendingCommands[machineId] || null;
+
+        // Include auto-restart data if available
+        const autoRestartConfig = autoRestarts[machineId];
+        if (autoRestartConfig) {
+            const now = new Date();
+            let nextStopIn = 0;
+            if (autoRestartConfig.autoStopEnabled && autoRestartConfig.lastStopTime) {
+                const lastStop = new Date(autoRestartConfig.lastStopTime);
+                const elapsedSeconds = Math.floor((now - lastStop) / 1000);
+                nextStopIn = Math.max(0, (autoRestartConfig.autoStopInterval * 60) - elapsedSeconds);
+            }
+            let nextStartIn = 0;
+            if (autoRestartConfig.autoStartEnabled && autoRestartConfig.lastStartTime) {
+                const lastStart = new Date(autoRestartConfig.lastStartTime);
+                const elapsedSeconds = Math.floor((now - lastStart) / 1000);
+                nextStartIn = Math.max(0, (autoRestartConfig.autoStartInterval * 60) - elapsedSeconds);
+            }
+
+            autoRestart = {
+                autoStopEnabled: autoRestartConfig.autoStopEnabled || false,
+                autoStopInterval: autoRestartConfig.autoStopInterval || 0,
+                nextStopIn,
+                autoStartEnabled: autoRestartConfig.autoStartEnabled || false,
+                autoStartInterval: autoRestartConfig.autoStartInterval || 0,
+                nextStartIn
+            };
+        }
+    }
 
     res.json({
         online: isOnline,
@@ -307,7 +344,10 @@ app.get('/status', (req, res) => {
         lastUpdateTimestamp: currentStatus.lastUpdate,
         serverUptimeSeconds,
         health,
-        data: currentStatus.data
+        data: currentStatus.data,
+        logs: eventLogs.slice(0, 50), // Send last 50 logs
+        command: command, // Send pending command status so dashboard knows
+        autoRestart: autoRestart // Send auto-restart status
     });
 });
 
@@ -316,19 +356,93 @@ app.get('/activity-logs', (req, res) => {
     res.json({ logs: eventLogs });
 });
 
+// Debugging: Log all incoming requests - SILENCED FOR PRODUCTION
+// app.use((req, res, next) => {
+//     console.log(`[DEBUG] ${req.method} ${req.path}`);
+//     next();
+// });
+
+// ... (multer config unchanged) ...
+
+// GET /status - Public status endpoint including logs and commands for optimized fetching
+app.get('/status', (req, res) => {
+    // Check if offline (no update in 45 seconds to handle Render latency)
+    const timeSinceLast = Date.now() - currentStatus.lastUpdate;
+    const isOnline = timeSinceLast < 45000 && currentStatus.online;
+
+    // Calculate server uptime
+    const serverUptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
+
+    // Determine health based on crashes
+    const crashes = currentStatus.data.crashes_120s || 0;
+    let health = 'excellent';
+    if (crashes >= 4) health = 'critical';
+    else if (crashes >= 2) health = 'warning';
+    else if (crashes >= 1) health = 'good';
+    if (!isOnline) health = 'offline';
+
+    // Get pending command for this machine (if any)
+    const machineId = currentStatus.data.machineId;
+    let command = null;
+    let autoRestart = null;
+
+    if (machineId) {
+        command = pendingCommands[machineId] || null;
+
+        // Include auto-restart data if available
+        const autoRestartConfig = autoRestarts[machineId];
+        if (autoRestartConfig) {
+            const now = new Date();
+            let nextStopIn = 0;
+            if (autoRestartConfig.autoStopEnabled && autoRestartConfig.lastStopTime) {
+                const lastStop = new Date(autoRestartConfig.lastStopTime);
+                const elapsedSeconds = Math.floor((now - lastStop) / 1000);
+                nextStopIn = Math.max(0, (autoRestartConfig.autoStopInterval * 60) - elapsedSeconds);
+            }
+            let nextStartIn = 0;
+            if (autoRestartConfig.autoStartEnabled && autoRestartConfig.lastStartTime) {
+                const lastStart = new Date(autoRestartConfig.lastStartTime);
+                const elapsedSeconds = Math.floor((now - lastStart) / 1000);
+                nextStartIn = Math.max(0, (autoRestartConfig.autoStartInterval * 60) - elapsedSeconds);
+            }
+
+            autoRestart = {
+                autoStopEnabled: autoRestartConfig.autoStopEnabled || false,
+                autoStopInterval: autoRestartConfig.autoStopInterval || 0,
+                nextStopIn,
+                autoStartEnabled: autoRestartConfig.autoStartEnabled || false,
+                autoStartInterval: autoRestartConfig.autoStartInterval || 0,
+                nextStartIn
+            };
+        }
+    }
+
+    res.json({
+        online: isOnline,
+        lastUpdate: currentStatus.lastUpdate,
+        lastUpdateTimestamp: currentStatus.lastUpdate,
+        serverUptimeSeconds,
+        health,
+        data: currentStatus.data,
+        logs: eventLogs.slice(0, 50), // Send last 50 logs
+        command: command, // Send pending command status so dashboard knows
+        autoRestart: autoRestart // Send auto-restart status
+    });
+});
+
 // GET /api/commands/:machineId - Launcher polls for new commands and schedules
 app.get('/api/commands/:machineId', authenticate, (req, res) => {
     const machineId = req.params.machineId;
     const command = pendingCommands[machineId];
     const schedule = schedules[machineId] || { enabled: false };
 
+    // ... (auto-restart logic same as before) ...
     // Get the auto-restart config for the machine (if any)
     const autoRestartConfig = autoRestarts[machineId] || null;
     let autoRestart = null;
 
     if (autoRestartConfig) {
         const now = new Date();
-
         // Calculate auto-stop countdown
         let nextStopIn = 0;
         if (autoRestartConfig.autoStopEnabled && autoRestartConfig.lastStopTime) {
@@ -337,7 +451,6 @@ app.get('/api/commands/:machineId', authenticate, (req, res) => {
             const intervalSeconds = autoRestartConfig.autoStopInterval * 60;
             nextStopIn = Math.max(0, intervalSeconds - elapsedSeconds);
         }
-
         // Calculate auto-start countdown
         let nextStartIn = 0;
         if (autoRestartConfig.autoStartEnabled && autoRestartConfig.lastStartTime) {
@@ -362,9 +475,9 @@ app.get('/api/commands/:machineId', authenticate, (req, res) => {
         console.log(`[COMMAND-QUEUE] 🔵 Sending command "${command}" to ${machineId}`);
         console.log(`[COMMAND-QUEUE] 🗑️  Deleting command from queue for ${machineId}`);
         delete pendingCommands[machineId];
-        console.log(`[COMMAND-QUEUE] ✅ Queue status for ${machineId}:`, pendingCommands[machineId] || 'EMPTY');
+        // console.log(`[COMMAND-QUEUE] ✅ Queue status for ${machineId}:`, pendingCommands[machineId] || 'EMPTY');
     } else {
-        console.log(`[COMMAND-QUEUE] ⚪ No pending command for ${machineId}`);
+        // console.log(`[COMMAND-QUEUE] ⚪ No pending command for ${machineId}`); // SILENCED
     }
 
     res.json({
@@ -373,6 +486,7 @@ app.get('/api/commands/:machineId', authenticate, (req, res) => {
         autoRestart
     });
 });
+
 
 // POST /api/admin/command - Admin issues a manual command (START/STOP)
 app.post('/api/admin/command', authenticate, (req, res) => {

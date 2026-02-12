@@ -149,11 +149,14 @@
         let isOnline = false;
         let autoRestartData = null;
 
-        async function updateStatus() {
+        // Unified update function to reduce API calls
+        async function refreshDashboard() {
             try {
+                // Single call to get EVERYTHING (status, logs, commands, auto-restart)
                 const response = await fetch('/status');
                 const data = await response.json();
 
+                // 1. Update System Status
                 const statusEl = document.getElementById('status-indicator');
                 const statusText = document.getElementById('status-text');
                 const healthBadge = document.getElementById('health-badge');
@@ -199,7 +202,8 @@
                         'excellent': 'HEALTH: EXCELLENT',
                         'good': 'HEALTH: GOOD',
                         'warning': 'HEALTH: WARNING',
-                        'critical': 'HEALTH: CRITICAL'
+                        'critical': 'HEALTH: CRITICAL',
+                        'offline': 'HEALTH: OFFLINE'
                     };
                     healthBadge.textContent = healthText[data.health] || 'HEALTH: EXCELLENT';
                     healthBadge.className = `health-badge ${data.health}`;
@@ -212,8 +216,50 @@
                         heartbeatSection.classList.remove('heartbeat-active');
                     }
 
-                    // Update auto-restart countdowns
-                    updateAutoRestartDisplay();
+                    // 2. Update Logs (included in status response now!)
+                    const logContainer = document.getElementById('log-container');
+                    if (data.logs && data.logs.length > 0) {
+                        logContainer.innerHTML = data.logs.map(log => `
+                            <div class="log-entry">
+                                <span class="log-time">${log.time}</span>
+                                <span class="log-message">${escapeHtml(log.message)}</span>
+                            </div>
+                        `).join('');
+                    }
+
+                    // 3. Update Auto-Restart (included in status response now!)
+                    if (data.autoRestart) {
+                        autoRestartData = data.autoRestart;
+
+                        // Update stop countdown
+                        if (data.autoRestart.autoStopEnabled) {
+                            const mins = Math.floor(data.autoRestart.nextStopIn / 60);
+                            const secs = data.autoRestart.nextStopIn % 60;
+                            document.getElementById('auto-stop-countdown').textContent =
+                                `🔴 Next stop in: ${mins}m ${secs}s`;
+                            document.getElementById('auto-stop-countdown').style.color = '#EF4444';
+                            document.getElementById('auto-stop-enabled').checked = true;
+                            document.getElementById('auto-stop-interval').value = data.autoRestart.autoStopInterval;
+                        } else {
+                            document.getElementById('auto-stop-countdown').textContent = '⚪ Disabled';
+                            document.getElementById('auto-stop-countdown').style.color = '#9CA3AF';
+                        }
+
+                        // Update start countdown
+                        if (data.autoRestart.autoStartEnabled) {
+                            const mins = Math.floor(data.autoRestart.nextStartIn / 60);
+                            const secs = data.autoRestart.nextStartIn % 60;
+                            document.getElementById('auto-start-countdown').textContent =
+                                `🟢 Next start in: ${mins}m ${secs}s`;
+                            document.getElementById('auto-start-countdown').style.color = '#10B981';
+                            document.getElementById('auto-start-enabled').checked = true;
+                            document.getElementById('auto-start-interval').value = data.autoRestart.autoStartInterval;
+                        } else {
+                            document.getElementById('auto-start-countdown').textContent = '⚪ Disabled';
+                            document.getElementById('auto-start-countdown').style.color = '#9CA3AF';
+                        }
+                    }
+
                 } else {
                     if (isOnline) {
                         console.log('Launcher went offline');
@@ -225,26 +271,7 @@
                     healthBadge.className = 'health-badge critical';
                 }
             } catch (error) {
-                console.error('Status update error:', error);
-            }
-        }
-
-        async function updateLogs() {
-            try {
-                const response = await fetch('/activity-logs');
-                const data = await response.json();
-                const logContainer = document.getElementById('log-container');
-
-                if (data.logs && data.logs.length > 0) {
-                    logContainer.innerHTML = data.logs.map(log => `
-                        <div class="log-entry">
-                            <span class="log-time">${log.time}</span>
-                            <span class="log-message">${escapeHtml(log.message)}</span>
-                        </div>
-                    `).join('');
-                }
-            } catch (error) {
-                console.error('Logs update error:', error);
+                console.error('Dashboard refresh error:', error);
             }
         }
 
@@ -351,57 +378,15 @@
                     document.getElementById('command-status').textContent = '✅ Auto-restart settings updated';
                     document.getElementById('command-status').style.color = '#10B981';
                     setTimeout(() => document.getElementById('command-status').textContent = '', 3000);
+                    // Force immediate refresh to see changes
+                    refreshDashboard();
                 }
             } catch (err) {
                 console.error('Auto-restart update error:', err);
             }
         }
 
-        async function updateAutoRestartDisplay() {
-            try {
-                const machineId = document.getElementById('machine-id').textContent;
-                if (!machineId || machineId === '---') return;
-
-                const response = await fetch(`/api/commands/${machineId}`, {
-                    headers: { 'x-api-key': 'somatic-secure-key-2026-v1' }
-                });
-                const data = await response.json();
-
-                if (data.autoRestart) {
-                    autoRestartData = data.autoRestart;
-
-                    // Update stop countdown
-                    if (data.autoRestart.autoStopEnabled) {
-                        const mins = Math.floor(data.autoRestart.nextStopIn / 60);
-                        const secs = data.autoRestart.nextStopIn % 60;
-                        document.getElementById('auto-stop-countdown').textContent =
-                            `🔴 Next stop in: ${mins}m ${secs}s`;
-                        document.getElementById('auto-stop-countdown').style.color = '#EF4444';
-                        document.getElementById('auto-stop-enabled').checked = true;
-                        document.getElementById('auto-stop-interval').value = data.autoRestart.autoStopInterval;
-                    } else {
-                        document.getElementById('auto-stop-countdown').textContent = '⚪ Disabled';
-                        document.getElementById('auto-stop-countdown').style.color = '#9CA3AF';
-                    }
-
-                    // Update start countdown
-                    if (data.autoRestart.autoStartEnabled) {
-                        const mins = Math.floor(data.autoRestart.nextStartIn / 60);
-                        const secs = data.autoRestart.nextStartIn % 60;
-                        document.getElementById('auto-start-countdown').textContent =
-                            `🟢 Next start in: ${mins}m ${secs}s`;
-                        document.getElementById('auto-start-countdown').style.color = '#10B981';
-                        document.getElementById('auto-start-enabled').checked = true;
-                        document.getElementById('auto-start-interval').value = data.autoRestart.autoStartInterval;
-                    } else {
-                        document.getElementById('auto-start-countdown').textContent = '⚪ Disabled';
-                        document.getElementById('auto-start-countdown').style.color = '#9CA3AF';
-                    }
-                }
-            } catch (err) {
-                console.error('Auto-restart display update error:', err);
-            }
-        }
+        // Removed redundant separate auto-restart fetch - now included in main loop
 
         function formatUptime(seconds) {
             const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -432,11 +417,12 @@
             return text.replace(/[&<>"']/g, m => map[m]);
         }
 
-        // Update every 6 seconds to save server resources
-        setInterval(updateStatus, 6000);
-        setInterval(updateLogs, 6000);
-        updateStatus();
-        updateLogs();
+        // Update every 8 seconds to save server resources (Render Free Tier safe)
+        // One single call handling status, logs, and schedule
+        setInterval(refreshDashboard, 8000);
+
+        // Initial load
+        refreshDashboard();
     </script>
 </body>
 
