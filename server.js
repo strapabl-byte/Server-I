@@ -18,6 +18,12 @@ app.use(express.json());
 app.use(express.text());
 app.use(express.static('public'));
 
+// Debugging: Log all incoming requests
+app.use((req, res, next) => {
+    console.log(`[DEBUG] ${req.method} ${req.path}`);
+    next();
+});
+
 // Configure Multer for file uploads
 const multer = require('multer');
 const fs = require('fs');
@@ -72,13 +78,18 @@ app.post('/upload-logs', apiLimiter, authenticate, upload.single('logfile'), (re
         const lastLines = lines.slice(-3);
 
         lastLines.forEach(line => {
-            const logEntry = {
-                timestamp: new Date().toISOString(),
-                message: `📄 [FILE] ${line}`,
-                time: new Date().toLocaleTimeString(),
-                type: 'file-log'
-            };
-            eventLogs.unshift(logEntry);
+            // Check if this specific log message already exists in eventLogs to avoid duplicates
+            const isDuplicate = eventLogs.some(log => log.message.includes(line));
+
+            if (!isDuplicate) {
+                const logEntry = {
+                    timestamp: new Date().toISOString(),
+                    message: `📄 [FILE] ${line}`,
+                    time: new Date().toLocaleTimeString(),
+                    type: 'file-log'
+                };
+                eventLogs.unshift(logEntry);
+            }
         });
 
         if (eventLogs.length > MAX_LOGS) {
@@ -100,8 +111,18 @@ let currentStatus = {
 };
 
 let eventLogs = [];
-const MAX_LOGS = 50;
+let pendingCommands = {}; // { machineId: 'START' | 'STOP' }
+let schedules = {}; // { machineId: { startAt: 'HH:mm', stopAt: 'HH:mm', enabled: false } }
+let autoRestarts = {}; // { machineId: { interval: number, enabled: boolean, lastRestartTime: ISO string } }
+const MAX_LOGS = 3;
 const serverStartTime = Date.now();
+
+// Generate random ID if none exists
+const generateRandomId = () => {
+    return 'node-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+};
+
+let sessionMachineId = null;
 
 // POST /update - Receive launcher updates
 app.post('/update', apiLimiter, authenticate, (req, res) => {
@@ -117,6 +138,15 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
         return res.status(400).json({ error: 'Missing event type' });
     }
 
+    // Verify or generate machineId
+    let machineId = payload.machineId;
+    if (!machineId || machineId === 'Unknown' || machineId === '---') {
+        if (!sessionMachineId) {
+            sessionMachineId = generateRandomId();
+        }
+        machineId = sessionMachineId;
+    }
+
     // Update current status with flattened data structure
     currentStatus = {
         online: true,
@@ -128,9 +158,11 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
             crashes_120s: payload.crashes_120s || 0,
             total_restarts: payload.total_restarts || 0,
             state: payload.game?.state || 'OFF',
+            total_crashes: payload.total_crashes || 0,
+            last_crash_at: payload.last_crash_at || '---',
             exeName: payload.game?.exeName || 'Unknown',
             exePath: payload.game?.exePath || '',
-            machineId: payload.machineId || 'Unknown',
+            machineId: machineId,
             app: payload.app || 'SomaticLauncher'
         }
     };
@@ -147,15 +179,39 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
         switch (eventType) {
             case 'launched':
                 message = `🚀 Game Started: ${gameName} (PID: ${pid})`;
+
+                // Reset auto-start timer when game starts
+                if (autoRestarts[machineId] && autoRestarts[machineId].autoStartEnabled) {
+                    autoRestarts[machineId].lastStartTime = new Date().toISOString();
+                }
+                // Reset auto-stop timer when game starts (so it stops after X minutes of running)
+                if (autoRestarts[machineId] && autoRestarts[machineId].autoStopEnabled) {
+                    autoRestarts[machineId].lastStopTime = new Date().toISOString();
+                }
                 break;
             case 'stopped':
                 message = `⏹️ Game Stopped: ${gameName} (by ${reason})`;
+
+                // Reset auto-start timer when game stops (so it starts after X minutes of being stopped)
+                if (autoRestarts[machineId] && autoRestarts[machineId].autoStartEnabled) {
+                    autoRestarts[machineId].lastStartTime = new Date().toISOString();
+                }
                 break;
             case 'crashed':
                 message = `💥 Game Crashed: ${gameName} (Exit Code: Unknown)`;
                 break;
             case 'relaunched':
-                message = `🔄 Game Restarted: ${gameName} (Watchdog - Total Restarts: ${restarts})`;
+                message = `🔄 Game Restarted: ${gameName} (Watchdog - Total Re: ${restarts}, Total Crashes: ${payload.total_crashes || 0})`;
+
+                // Reset both timers when game restarts
+                if (autoRestarts[machineId]) {
+                    if (autoRestarts[machineId].autoStartEnabled) {
+                        autoRestarts[machineId].lastStartTime = new Date().toISOString();
+                    }
+                    if (autoRestarts[machineId].autoStopEnabled) {
+                        autoRestarts[machineId].lastStopTime = new Date().toISOString();
+                    }
+                }
                 break;
             case 'selected':
                 message = `📂 Game Selected: ${gameName}`;
@@ -231,9 +287,9 @@ app.get('/download/:filename', (req, res) => {
 
 // GET /status - Public status endpoint for dashboard
 app.get('/status', (req, res) => {
-    // Check if offline (no update in 60 seconds)
+    // Check if offline (no update in 15 seconds)
     const timeSinceLast = Date.now() - currentStatus.lastUpdate;
-    const isOnline = timeSinceLast < 60000 && currentStatus.online;
+    const isOnline = timeSinceLast < 15000 && currentStatus.online;
 
     // Calculate server uptime
     const serverUptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
@@ -255,10 +311,151 @@ app.get('/status', (req, res) => {
     });
 });
 
-// GET /logs - Public logs endpoint
-app.get('/logs', (req, res) => {
+// GET /activity-logs - Public logs endpoint
+app.get('/activity-logs', (req, res) => {
     res.json({ logs: eventLogs });
 });
+
+// GET /api/commands/:machineId - Launcher polls for new commands and schedules
+app.get('/api/commands/:machineId', authenticate, (req, res) => {
+    const machineId = req.params.machineId;
+    const command = pendingCommands[machineId];
+    const schedule = schedules[machineId] || { enabled: false };
+
+    // Get the auto-restart config for the machine (if any)
+    const autoRestartConfig = autoRestarts[machineId] || null;
+    let autoRestart = null;
+
+    if (autoRestartConfig) {
+        const now = new Date();
+
+        // Calculate auto-stop countdown
+        let nextStopIn = 0;
+        if (autoRestartConfig.autoStopEnabled && autoRestartConfig.lastStopTime) {
+            const lastStop = new Date(autoRestartConfig.lastStopTime);
+            const elapsedSeconds = Math.floor((now - lastStop) / 1000);
+            const intervalSeconds = autoRestartConfig.autoStopInterval * 60;
+            nextStopIn = Math.max(0, intervalSeconds - elapsedSeconds);
+        }
+
+        // Calculate auto-start countdown
+        let nextStartIn = 0;
+        if (autoRestartConfig.autoStartEnabled && autoRestartConfig.lastStartTime) {
+            const lastStart = new Date(autoRestartConfig.lastStartTime);
+            const elapsedSeconds = Math.floor((now - lastStart) / 1000);
+            const intervalSeconds = autoRestartConfig.autoStartInterval * 60;
+            nextStartIn = Math.max(0, intervalSeconds - elapsedSeconds);
+        }
+
+        autoRestart = {
+            autoStopEnabled: autoRestartConfig.autoStopEnabled || false,
+            autoStopInterval: autoRestartConfig.autoStopInterval || 0,
+            nextStopIn,
+            autoStartEnabled: autoRestartConfig.autoStartEnabled || false,
+            autoStartInterval: autoRestartConfig.autoStartInterval || 0,
+            nextStartIn
+        };
+    }
+
+    // Clear the command after sending it (one-time execution)
+    if (command) {
+        console.log(`[COMMAND-QUEUE] 🔵 Sending command "${command}" to ${machineId}`);
+        console.log(`[COMMAND-QUEUE] 🗑️  Deleting command from queue for ${machineId}`);
+        delete pendingCommands[machineId];
+        console.log(`[COMMAND-QUEUE] ✅ Queue status for ${machineId}:`, pendingCommands[machineId] || 'EMPTY');
+    } else {
+        console.log(`[COMMAND-QUEUE] ⚪ No pending command for ${machineId}`);
+    }
+
+    res.json({
+        command: command || null,
+        schedule,
+        autoRestart
+    });
+});
+
+// POST /api/admin/command - Admin issues a manual command (START/STOP)
+app.post('/api/admin/command', authenticate, (req, res) => {
+    const { machineId, command } = req.body;
+
+    if (!machineId || !['START', 'STOP'].includes(command)) {
+        return res.status(400).json({ error: 'Invalid machineId or command' });
+    }
+
+    console.log(`[COMMAND-QUEUE] 📥 Dashboard sent command "${command}" for ${machineId}`);
+    console.log(`[COMMAND-QUEUE] 📋 Queue BEFORE adding:`, pendingCommands[machineId] || 'EMPTY');
+    pendingCommands[machineId] = command;
+    console.log(`[COMMAND-QUEUE] ✅ Command "${command}" queued for ${machineId}`);
+    console.log(`[COMMAND-QUEUE] 📋 Queue AFTER adding:`, pendingCommands[machineId]);
+
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        message: `🎮 REMOTE CMD: ${command} issued for ${machineId}`,
+        time: new Date().toLocaleTimeString(),
+        type: 'admin-command'
+    };
+    eventLogs.unshift(logEntry);
+
+    res.json({ success: true, message: `Command ${command} queued` });
+});
+
+// POST /api/admin/schedule - Admin sets a time-based schedule
+app.post('/api/admin/schedule', authenticate, (req, res) => {
+    const { machineId, startAt, stopAt, enabled } = req.body;
+
+    if (!machineId || typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'Invalid machineId or enabled status' });
+    }
+
+    schedules[machineId] = {
+        startAt: startAt || '08:00',
+        stopAt: stopAt || '23:00',
+        enabled: enabled
+    };
+
+    console.log(`[ADMIN] Schedule updated for ${machineId}: ${startAt}-${stopAt} (Enabled: ${enabled})`);
+
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        message: `📅 SCHEDULE: ${enabled ? 'Enabled' : 'Disabled'} for ${machineId} (${startAt}-${stopAt})`,
+        time: new Date().toLocaleTimeString(),
+        type: 'admin-schedule'
+    };
+    eventLogs.unshift(logEntry);
+
+    res.json({ success: true, message: 'Schedule updated' });
+});
+
+// POST /api/admin/auto-restart - Admin sets auto-start/stop intervals
+app.post('/api/admin/auto-restart', authenticate, (req, res) => {
+    const { machineId, autoStopInterval, autoStopEnabled, autoStartInterval, autoStartEnabled } = req.body;
+
+    if (!machineId) {
+        return res.status(400).json({ error: 'Invalid machineId' });
+    }
+
+    autoRestarts[machineId] = {
+        autoStopInterval: autoStopInterval || 120,
+        autoStopEnabled: autoStopEnabled || false,
+        lastStopTime: autoStopEnabled ? new Date().toISOString() : null,
+        autoStartInterval: autoStartInterval || 120,
+        autoStartEnabled: autoStartEnabled || false,
+        lastStartTime: autoStartEnabled ? new Date().toISOString() : null
+    };
+
+    console.log(`[ADMIN] Auto-start/stop updated for ${machineId}: Stop after ${autoStopInterval} min (${autoStopEnabled ? 'On' : 'Off'}), Start after ${autoStartInterval} min (${autoStartEnabled ? 'On' : 'Off'})`);
+
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        message: `🔄 AUTO-START/STOP: Stop ${autoStopEnabled ? 'ON' : 'OFF'} (${autoStopInterval}min), Start ${autoStartEnabled ? 'ON' : 'OFF'} (${autoStartInterval}min) for ${machineId}`,
+        time: new Date().toLocaleTimeString(),
+        type: 'admin-restart'
+    };
+    eventLogs.unshift(logEntry);
+
+    res.json({ success: true, message: 'Auto-start/stop updated' });
+});
+
 
 // GET / - Serve dashboard
 app.get('/', (req, res) => {

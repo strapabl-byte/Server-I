@@ -63,6 +63,70 @@
             </div>
         </div>
 
+        <!-- REMOTE MANAGEMENT PANEL -->
+        <div id="remote-control-panel"
+            style="display: none; margin: 30px 0; padding: 25px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; font-size: 18px; color: #F3F4F6;">🎮 Remote Management</h2>
+                <span id="control-lock-status"
+                    style="font-size: 11px; padding: 4px 12px; border-radius: 12px; font-weight: 600; background: #EF4444; color: white;">OFFLINE
+                    MODE</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <button id="cmd-start-btn" onclick="sendCommand('START')" disabled
+                    style="background: linear-gradient(135deg, #10B981, #059669); border: none; padding: 15px; border-radius: 8px; color: white; font-weight: 600; cursor: not-allowed; font-size: 14px; opacity: 0.5; transition: all 0.3s;">
+                    <span style="margin-right: 8px;">▶️</span> START GAME
+                </button>
+                <button id="cmd-stop-btn" onclick="sendCommand('STOP')" disabled
+                    style="background: linear-gradient(135deg, #EF4444, #DC2626); border: none; padding: 15px; border-radius: 8px; color: white; font-weight: 600; cursor: not-allowed; font-size: 14px; opacity: 0.5; transition: all 0.3s;">
+                    <span style="margin-right: 8px;">⏹️</span> STOP GAME
+                </button>
+            </div>
+
+            <div id="command-status"
+                style="text-align: center; color: #9CA3AF; font-size: 13px; min-height: 20px; margin-bottom: 15px;">
+            </div>
+
+            <!-- Auto-Start/Stop Controls -->
+            <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px;">
+                <h3
+                    style="margin: 0 0 15px 0; font-size: 14px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 1px;">
+                    🔄 Auto-Start/Stop</h3>
+
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <input type="checkbox" id="auto-stop-enabled" onchange="updateAutoRestart()"
+                        style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="auto-stop-enabled" style="font-weight: 600; color: #EF4444; cursor: pointer;">⏹️ STOP
+                        GAME AFTER</label>
+                    <input type="number" id="auto-stop-interval" value="120" min="1"
+                        style="width: 80px; padding: 8px; background: #1F2937; border: 1px solid #374151; border-radius: 6px; color: white; text-align: center; font-size: 14px;">
+                    <span style="color: #9CA3AF;">minutes</span>
+                </div>
+                <div id="auto-stop-countdown"
+                    style="font-size: 12px; color: #9CA3AF; margin-left: 28px; margin-bottom: 20px;">⚪ Waiting for
+                    launcher...</div>
+
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <input type="checkbox" id="auto-start-enabled" onchange="updateAutoRestart()"
+                        style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="auto-start-enabled" style="font-weight: 600; color: #10B981; cursor: pointer;">▶️ START
+                        GAME AFTER</label>
+                    <input type="number" id="auto-start-interval" value="120" min="1"
+                        style="width: 80px; padding: 8px; background: #1F2937; border: 1px solid #374151; border-radius: 6px; color: white; text-align: center; font-size: 14px;">
+                    <span style="color: #9CA3AF;">minutes</span>
+                </div>
+                <div id="auto-start-countdown"
+                    style="font-size: 12px; color: #9CA3AF; margin-left: 28px; margin-bottom: 20px;">⚪ Waiting for
+                    launcher...</div>
+
+                <button onclick="updateAutoRestart()"
+                    style="width: 100%; background: #3B82F6; border: none; padding: 12px; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; font-size: 14px; margin-top: 5px; transition: all 0.3s;">
+                    Update Auto-Restart Settings
+                </button>
+            </div>
+        </div>
+
         <div class="logs-section">
             <h2>Activity Logs</h2>
             <div id="log-container" class="log-container">
@@ -83,6 +147,7 @@
 
     <script>
         let isOnline = false;
+        let autoRestartData = null;
 
         async function updateStatus() {
             try {
@@ -94,6 +159,18 @@
                 const healthBadge = document.getElementById('health-badge');
 
                 if (data.online) {
+                    if (!isOnline) {
+                        console.log('Launcher connected');
+                        document.getElementById('remote-control-panel').style.display = 'block';
+                        document.getElementById('cmd-start-btn').disabled = false;
+                        document.getElementById('cmd-stop-btn').disabled = false;
+                        document.getElementById('cmd-start-btn').style.opacity = '1';
+                        document.getElementById('cmd-stop-btn').style.opacity = '1';
+                        document.getElementById('cmd-start-btn').style.cursor = 'pointer';
+                        document.getElementById('cmd-stop-btn').style.cursor = 'pointer';
+                        document.getElementById('control-lock-status').textContent = 'REMOTE ACTIVE';
+                        document.getElementById('control-lock-status').style.background = '#10B981';
+                    }
                     isOnline = true;
                     statusEl.className = 'status-indicator online';
                     statusText.textContent = 'CONNECTED';
@@ -127,16 +204,18 @@
                     healthBadge.textContent = healthText[data.health] || 'HEALTH: EXCELLENT';
                     healthBadge.className = `health-badge ${data.health}`;
 
-                    // Toggle Heartbeat
+                    // Heartbeat animation
                     const heartbeatSection = document.getElementById('heartbeat-section');
                     if (data.data.state === 'RUNNING') {
                         heartbeatSection.classList.add('heartbeat-active');
                     } else {
                         heartbeatSection.classList.remove('heartbeat-active');
                     }
+
+                    // Update auto-restart countdowns
+                    updateAutoRestartDisplay();
                 } else {
                     if (isOnline) {
-                        // Just went offline
                         console.log('Launcher went offline');
                     }
                     isOnline = false;
@@ -152,7 +231,7 @@
 
         async function updateLogs() {
             try {
-                const response = await fetch('/logs');
+                const response = await fetch('/activity-logs');
                 const data = await response.json();
                 const logContainer = document.getElementById('log-container');
 
@@ -166,6 +245,161 @@
                 }
             } catch (error) {
                 console.error('Logs update error:', error);
+            }
+        }
+
+        async function sendCommand(cmd) {
+            const machineId = document.getElementById('machine-id').textContent;
+            const statusEl = document.getElementById('command-status');
+            const startBtn = document.getElementById('cmd-start-btn');
+            const stopBtn = document.getElementById('cmd-stop-btn');
+
+            if (!machineId || machineId === '---') {
+                statusEl.textContent = '❌ No launcher connected';
+                statusEl.style.color = '#EF4444';
+                setTimeout(() => statusEl.textContent = '', 3000);
+                return;
+            }
+
+            // Disable both buttons to prevent multiple clicks
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            startBtn.style.opacity = '0.5';
+            stopBtn.style.opacity = '0.5';
+            startBtn.style.cursor = 'not-allowed';
+            stopBtn.style.cursor = 'not-allowed';
+
+            statusEl.textContent = `⏳ Sending ${cmd} command...`;
+            statusEl.style.color = '#3B82F6';
+
+            try {
+                const response = await fetch('/api/admin/command', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': 'somatic-secure-key-2026-v1'
+                    },
+                    body: JSON.stringify({ machineId, command: cmd })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    statusEl.textContent = `✅ ${cmd} command sent`;
+                    statusEl.style.color = '#10B981';
+                } else {
+                    statusEl.textContent = `❌ ${result.error || 'Command failed'}`;
+                    statusEl.style.color = '#EF4444';
+                }
+
+                // Clear status after 3 seconds
+                setTimeout(() => statusEl.textContent = '', 3000);
+
+                // Re-enable buttons after 3 seconds
+                setTimeout(() => {
+                    startBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    startBtn.style.opacity = '1';
+                    stopBtn.style.opacity = '1';
+                    startBtn.style.cursor = 'pointer';
+                    stopBtn.style.cursor = 'pointer';
+                }, 3000);
+
+            } catch (err) {
+                statusEl.textContent = '❌ Command failed: ' + err.message;
+                statusEl.style.color = '#EF4444';
+                setTimeout(() => statusEl.textContent = '', 3000);
+
+                // Re-enable buttons even on error
+                setTimeout(() => {
+                    startBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    startBtn.style.opacity = '1';
+                    stopBtn.style.opacity = '1';
+                    startBtn.style.cursor = 'pointer';
+                    stopBtn.style.cursor = 'pointer';
+                }, 3000);
+            }
+        }
+
+        async function updateAutoRestart() {
+            const machineId = document.getElementById('machine-id').textContent;
+            if (!machineId || machineId === '---') {
+                alert('No launcher connected');
+                return;
+            }
+
+            const config = {
+                machineId,
+                autoStopEnabled: document.getElementById('auto-stop-enabled').checked,
+                autoStopInterval: parseInt(document.getElementById('auto-stop-interval').value),
+                autoStartEnabled: document.getElementById('auto-start-enabled').checked,
+                autoStartInterval: parseInt(document.getElementById('auto-start-interval').value)
+            };
+
+            try {
+                const response = await fetch('/api/admin/auto-restart', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': 'somatic-secure-key-2026-v1'
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    document.getElementById('command-status').textContent = '✅ Auto-restart settings updated';
+                    document.getElementById('command-status').style.color = '#10B981';
+                    setTimeout(() => document.getElementById('command-status').textContent = '', 3000);
+                }
+            } catch (err) {
+                console.error('Auto-restart update error:', err);
+            }
+        }
+
+        async function updateAutoRestartDisplay() {
+            try {
+                const machineId = document.getElementById('machine-id').textContent;
+                if (!machineId || machineId === '---') return;
+
+                const response = await fetch(`/api/commands/${machineId}`, {
+                    headers: { 'x-api-key': 'somatic-secure-key-2026-v1' }
+                });
+                const data = await response.json();
+
+                if (data.autoRestart) {
+                    autoRestartData = data.autoRestart;
+
+                    // Update stop countdown
+                    if (data.autoRestart.autoStopEnabled) {
+                        const mins = Math.floor(data.autoRestart.nextStopIn / 60);
+                        const secs = data.autoRestart.nextStopIn % 60;
+                        document.getElementById('auto-stop-countdown').textContent =
+                            `🔴 Next stop in: ${mins}m ${secs}s`;
+                        document.getElementById('auto-stop-countdown').style.color = '#EF4444';
+                        document.getElementById('auto-stop-enabled').checked = true;
+                        document.getElementById('auto-stop-interval').value = data.autoRestart.autoStopInterval;
+                    } else {
+                        document.getElementById('auto-stop-countdown').textContent = '⚪ Disabled';
+                        document.getElementById('auto-stop-countdown').style.color = '#9CA3AF';
+                    }
+
+                    // Update start countdown
+                    if (data.autoRestart.autoStartEnabled) {
+                        const mins = Math.floor(data.autoRestart.nextStartIn / 60);
+                        const secs = data.autoRestart.nextStartIn % 60;
+                        document.getElementById('auto-start-countdown').textContent =
+                            `🟢 Next start in: ${mins}m ${secs}s`;
+                        document.getElementById('auto-start-countdown').style.color = '#10B981';
+                        document.getElementById('auto-start-enabled').checked = true;
+                        document.getElementById('auto-start-interval').value = data.autoRestart.autoStartInterval;
+                    } else {
+                        document.getElementById('auto-start-countdown').textContent = '⚪ Disabled';
+                        document.getElementById('auto-start-countdown').style.color = '#9CA3AF';
+                    }
+                }
+            } catch (err) {
+                console.error('Auto-restart display update error:', err);
             }
         }
 
@@ -198,9 +432,9 @@
             return text.replace(/[&<>"']/g, m => map[m]);
         }
 
-        // Update every 2 seconds
-        setInterval(updateStatus, 2000);
-        setInterval(updateLogs, 2000);
+        // Update every 6 seconds to save server resources
+        setInterval(updateStatus, 6000);
+        setInterval(updateLogs, 6000);
         updateStatus();
         updateLogs();
     </script>

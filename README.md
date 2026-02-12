@@ -12,11 +12,13 @@ Production-ready monitoring server for the Somatic Launcher that tracks game sta
 - ✅ **Security** - API key authentication, rate limiting, helmet protection
 - ✅ **Production-ready** - Optimized for deployment on Render.com
 - ✅ **Auto-recovery** - Automatically detects when launcher goes offline
+- ✅ **Remote Management** - Start and stop the game remotely from the dashboard
+- ✅ **Auto-Scheduling** - Set time-based schedules for automatic game operation
 - ✅ **Emoji Event Logs** - Beautiful emoji indicators for all events
 
 ## API Endpoints
 
-###POST `/update`
+### POST `/update`
 Receives launcher status updates.
 
 **Headers:**
@@ -29,46 +31,54 @@ x-api-key: somatic-secure-key-2026-v1
 {
   "event": {
     "type": "heartbeat",
-    "reason": "user"
+    "reason": "periodic"
   },
   "game": {
-    "exeName": "SomaticGame.exe",
+    "exeName": "SomaticLandsRedux.exe",
     "pid": 12345,
-    "state": "LIVE",
+    "state": "RUNNING",
     "uptimeSeconds": 3600
   },
-  "crashes_120s": 2,
-  "total_restarts": 5,
   "uptime_seconds": 3600,
-  "timestampUtc": "2026-01-31T23:40:00Z",
-  "app": "SomaticLauncher",
-  "machineId": "DESKTOP-XYZ"
+  "machineId": "node-1AR3X9"
 }
 ```
 
-### POST `/log`
-Receives detailed log messages.
-
-**Headers:**
-```
-x-api-key: somatic-secure-key-2026-v1
-```
+### POST `/api/admin/command`
+Admin issues a manual command (START/STOP) for a machine.
 
 **Payload:**
 ```json
 {
-  "message": "[ERROR] Game crashed"
+  "machineId": "node-1AR3X9",
+  "command": "START"
 }
 ```
 
-### GET `/status`
-Public endpoint that returns current launcher status (no auth required).
+### POST `/api/admin/schedule`
+Admin sets a time-based schedule for a machine.
 
-### GET `/logs`
+**Payload:**
+```json
+{
+  "machineId": "node-1AR3X9",
+  "startAt": "08:00",
+  "stopAt": "23:00",
+  "enabled": true
+}
+```
+
+### GET `/api/commands/:machineId`
+Launcher polls this to receive pending commands and schedules.
+
+### GET `/status`
+Public endpoint that returns current launcher status and health (no auth required).
+
+### GET `/activity-logs`
 Public endpoint that returns recent event logs (no auth required).
 
 ### GET `/`
-Serves the monitoring dashboard.
+Serves the monitoring dashboard with remote controls.
 
 ### GET `/health`
 Health check endpoint for Render.
@@ -82,16 +92,10 @@ Health check endpoint for Render.
 
 2. **Create environment file:**
    ```bash
-   cp .env.example .env
+   # Create .env and set your API_KEY
    ```
 
-3. **Edit `.env`:**
-   ```
-   PORT=3000
-   API_KEY=somatic-secure-key-2026-v1
-   ```
-
-4. **Start the server:**
+3. **Start the server:**
    ```bash
    npm start
    ```
@@ -158,14 +162,13 @@ private const string LOG_ENDPOINT = "https://your-app.onrender.com/log";
 ## Dashboard Features
 
 The dashboard displays:
+- **Remote Management Panel** - Manually Start/Stop the game (only when launcher is online)
+- **Auto-Scheduling Controls** - Enable/disable and set daily operation times
 - **Online/Offline Status** - Real-time launcher connectivity
 - **Health Badge** - Crash-based health indicator
 - **Game Uptime** - Current game session duration
 - **Process ID** - Active game process
-- **Crashes (2m)** - Crashes in the last 2 minutes
-- **Total Restarts** - Cumulative restart count
-- **Server Uptime** - How long the server has been running
-- **Event Logs** - Last 50 significant events with emoji indicators
+- **Event Logs** - Detailed activity history with emoji types
 
 ## Security
 
