@@ -583,7 +583,7 @@ app.get('/health', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`🚀 Somatic Launcher Server`);
+    console.log(`🚀 Somatic Launcher II Server`);
     console.log(`📡 Running on port ${PORT}`);
     console.log(`🔐 API Key: ${API_KEY.substring(0, 10)}...`);
     console.log(`🌐 Dashboard: http://localhost:${PORT}`);
