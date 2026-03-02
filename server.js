@@ -133,13 +133,13 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
         return res.status(400).json({ error: 'Invalid payload' });
     }
 
-    const eventType = payload.event?.type;
+    const eventType = payload.ev?.t || payload.event?.type;
     if (!eventType) {
         return res.status(400).json({ error: 'Missing event type' });
     }
 
     // Verify or generate machineId
-    let machineId = payload.machineId;
+    let machineId = payload.mId || payload.machineId;
     if (!machineId || machineId === 'Unknown' || machineId === '---') {
         if (!sessionMachineId) {
             sessionMachineId = generateRandomId();
@@ -152,16 +152,16 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
         online: true,
         lastUpdate: Date.now(),
         data: {
-            // Flatten for dashboard compatibility
-            pid: payload.game?.pid || 0,
-            uptime_seconds: payload.uptime_seconds || 0,
-            crashes_120s: payload.crashes_120s || 0,
-            total_restarts: payload.total_restarts || 0,
-            state: payload.game?.state || 'OFF',
-            total_crashes: payload.total_crashes || 0,
-            last_crash_at: payload.last_crash_at || '---',
-            exeName: payload.game?.exeName || 'Unknown',
-            exePath: payload.game?.exePath || '',
+            // Support both shortened and long keys
+            pid: payload.g?.pid || payload.game?.pid || 0,
+            uptime_seconds: payload.upS || payload.uptime_seconds || 0,
+            crashes_120s: payload.cr120 || payload.crashes_120s || 0,
+            total_restarts: payload.tRe || payload.total_restarts || 0,
+            state: payload.g?.st || payload.game?.state || 'OFF',
+            total_crashes: payload.tCr || payload.total_crashes || 0,
+            last_crash_at: payload.lCrAt || payload.last_crash_at || '---',
+            exeName: payload.g?.name || payload.game?.exeName || 'Unknown',
+            exePath: payload.g?.path || payload.game?.exePath || '',
             machineId: machineId,
             app: payload.app || 'SomaticLauncher'
         }
@@ -169,10 +169,10 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
 
     // Log significant events with descriptive messages
     if (eventType !== 'heartbeat') {
-        const gameName = payload.game?.exeName || 'Launcher';
-        const reason = payload.event?.reason || 'unknown';
-        const pid = payload.game?.pid || 0;
-        const restarts = payload.total_restarts || 0;
+        const gameName = payload.g?.name || payload.game?.exeName || 'Launcher';
+        const reason = payload.ev?.r || payload.event?.reason || 'unknown';
+        const pid = payload.g?.pid || payload.game?.pid || 0;
+        const restarts = payload.tRe || payload.total_restarts || 0;
 
         let message = '';
 
