@@ -18,11 +18,13 @@ app.use(express.json());
 app.use(express.text());
 app.use(express.static('public'));
 
-// Debugging: Log all incoming requests - SILENCED FOR PRODUCTION
-// app.use((req, res, next) => {
-//     console.log(`[DEBUG] ${req.method} ${req.path}`);
-//     next();
-// });
+// Debugging: Log all incoming requests
+app.use((req, res, next) => {
+    if (req.path !== '/status') { // Don't spam status polls
+        console.log(`[DEBUG] ${req.method} ${req.path} - Headers: ${JSON.stringify(req.headers['x-api-key'] ? 'API-KEY-PRESENT' : 'NO-API-KEY')}`);
+    }
+    next();
+});
 
 // Configure Multer for file uploads
 const multer = require('multer');
@@ -114,7 +116,7 @@ let eventLogs = [];
 let pendingCommands = {}; // { machineId: 'START' | 'STOP' }
 let schedules = {}; // { machineId: { startAt: 'HH:mm', stopAt: 'HH:mm', enabled: false } }
 let autoRestarts = {}; // { machineId: { interval: number, enabled: boolean, lastRestartTime: ISO string } }
-const MAX_LOGS = 3;
+const MAX_LOGS = 50;
 const serverStartTime = Date.now();
 
 // Generate random ID if none exists
@@ -127,19 +129,21 @@ let sessionMachineId = null;
 // POST /update - Receive launcher updates
 app.post('/update', apiLimiter, authenticate, (req, res) => {
     const payload = req.body;
+    console.log(`[DEBUG] Update Payload:`, JSON.stringify(payload));
+    console.log(`[UPDATE] Received from ${payload.mId || payload.machineId || 'Unknown'} (Event: ${payload.ev?.t || payload.event?.type || 'Unknown'})`);
 
     // Validate payload
     if (!payload || typeof payload !== 'object') {
         return res.status(400).json({ error: 'Invalid payload' });
     }
 
-    const eventType = payload.ev?.t || payload.event?.type;
+    const eventType = payload.event?.type;
     if (!eventType) {
         return res.status(400).json({ error: 'Missing event type' });
     }
 
     // Verify or generate machineId
-    let machineId = payload.mId || payload.machineId;
+    let machineId = payload.machineId;
     if (!machineId || machineId === 'Unknown' || machineId === '---') {
         if (!sessionMachineId) {
             sessionMachineId = generateRandomId();
@@ -152,16 +156,15 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
         online: true,
         lastUpdate: Date.now(),
         data: {
-            // Support both shortened and long keys
-            pid: payload.g?.pid || payload.game?.pid || 0,
-            uptime_seconds: payload.upS || payload.uptime_seconds || 0,
-            crashes_120s: payload.cr120 || payload.crashes_120s || 0,
-            total_restarts: payload.tRe || payload.total_restarts || 0,
-            state: payload.g?.st || payload.game?.state || 'OFF',
-            total_crashes: payload.tCr || payload.total_crashes || 0,
-            last_crash_at: payload.lCrAt || payload.last_crash_at || '---',
-            exeName: payload.g?.name || payload.game?.exeName || 'Unknown',
-            exePath: payload.g?.path || payload.game?.exePath || '',
+            pid: payload.game?.pid || 0,
+            uptime_seconds: payload.uptime_seconds || 0,
+            crashes_120s: payload.crashes_120s || 0,
+            total_restarts: payload.total_restarts || 0,
+            state: payload.game?.state || 'OFF',
+            total_crashes: payload.total_crashes || 0,
+            last_crash_at: payload.last_crash_at || '---',
+            exeName: payload.game?.exeName || 'Unknown',
+            exePath: payload.game?.exePath || '',
             machineId: machineId,
             app: payload.app || 'SomaticLauncher'
         }
@@ -169,10 +172,10 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
 
     // Log significant events with descriptive messages
     if (eventType !== 'heartbeat') {
-        const gameName = payload.g?.name || payload.game?.exeName || 'Launcher';
-        const reason = payload.ev?.r || payload.event?.reason || 'unknown';
-        const pid = payload.g?.pid || payload.game?.pid || 0;
-        const restarts = payload.tRe || payload.total_restarts || 0;
+        const gameName = payload.game?.exeName || 'Launcher';
+        const reason = payload.event?.reason || 'unknown';
+        const pid = payload.game?.pid || 0;
+        const restarts = payload.total_restarts || 0;
 
         let message = '';
 
@@ -235,6 +238,7 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
         console.log(`[EVENT] ${message}`);
     }
 
+    console.log(`[UPDATE] Handled successfully: ${eventType}`);
     res.json({ success: true, received: eventType });
 });
 
@@ -289,7 +293,7 @@ app.get('/download/:filename', (req, res) => {
 app.get('/status', (req, res) => {
     // Check if offline (no update in 45 seconds to handle Render latency)
     const timeSinceLast = Date.now() - currentStatus.lastUpdate;
-    const isOnline = timeSinceLast < 45000 && currentStatus.online;
+    const isOnline = timeSinceLast < 90000 && currentStatus.online;
 
     // Calculate server uptime
     const serverUptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);

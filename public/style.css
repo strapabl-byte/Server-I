@@ -491,8 +491,10 @@ header h1 {
 .log-container {
     background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
-    max-height: 400px;
-    overflow-y: auto;
+    max-height: 160px;
+    /* Reduced for ~3 lines */
+    overflow-y: hidden;
+    /* No scroll needed for 3 lines */
     padding: 15px;
 }
 
