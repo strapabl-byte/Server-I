@@ -226,7 +226,7 @@
                     // 2. Update Logs - SHOW ONLY LAST 3
                     const logContainer = document.getElementById('log-container');
                     if (data.logs && data.logs.length > 0) {
-                        const displayLogs = data.logs.slice(0, 3); // Top 3 most recent
+                        const displayLogs = data.logs.slice(0, 100); // Show up to 100 recent logs
                         logContainer.innerHTML = displayLogs.map(log => `
                             <div class="log-entry">
                                 <span class="log-time">${log.time}</span>

@@ -116,7 +116,7 @@ let eventLogs = [];
 let pendingCommands = {}; // { machineId: 'START' | 'STOP' }
 let schedules = {}; // { machineId: { startAt: 'HH:mm', stopAt: 'HH:mm', enabled: false } }
 let autoRestarts = {}; // { machineId: { interval: number, enabled: boolean, lastRestartTime: ISO string } }
-const MAX_LOGS = 50;
+const MAX_LOGS = 100;
 const serverStartTime = Date.now();
 
 // Generate random ID if none exists
@@ -349,7 +349,7 @@ app.get('/status', (req, res) => {
         serverUptimeSeconds,
         health,
         data: currentStatus.data,
-        logs: eventLogs.slice(0, 50), // Send last 50 logs
+        logs: eventLogs.slice(0, 100), // Send last 100 logs
         command: command, // Send pending command status so dashboard knows
         autoRestart: autoRestart // Send auto-restart status
     });
@@ -428,7 +428,7 @@ app.get('/status', (req, res) => {
         serverUptimeSeconds,
         health,
         data: currentStatus.data,
-        logs: eventLogs.slice(0, 50), // Send last 50 logs
+        logs: eventLogs.slice(0, 100), // Send last 100 logs
         command: command, // Send pending command status so dashboard knows
         autoRestart: autoRestart // Send auto-restart status
     });
