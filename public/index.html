@@ -156,8 +156,9 @@
         // Unified update function to reduce API calls
         async function refreshDashboard() {
             try {
-                // Single call to get EVERYTHING (status, logs, commands, auto-restart)
-                const response = await fetch('/status');
+                // Point to remote server instead of relative local path
+                const BASE_URL = 'https://server-i-gt4d.onrender.com';
+                const response = await fetch(`${BASE_URL}/status`);
                 const data = await response.json();
 
                 // 1. Update System Status
@@ -320,7 +321,8 @@
             statusEl.style.color = '#3B82F6';
 
             try {
-                const response = await fetch('/api/admin/command', {
+                const BASE_URL = 'https://server-i-gt4d.onrender.com';
+                const response = await fetch(`${BASE_URL}/api/admin/command`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -389,7 +391,8 @@
             };
 
             try {
-                const response = await fetch('/api/admin/auto-restart', {
+                const BASE_URL = 'https://server-i-gt4d.onrender.com';
+                const response = await fetch(`${BASE_URL}/api/admin/auto-restart`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -423,8 +426,9 @@
         function updateDownloadLink(machineId) {
             const downloadBtn = document.getElementById('download-logs-btn');
             if (machineId && machineId !== '---') {
+                const BASE_URL = 'https://server-i-gt4d.onrender.com';
                 const filename = `${machineId}_full_logs.txt`;
-                downloadBtn.href = `/download/${filename}`;
+                downloadBtn.href = `${BASE_URL}/download/${filename}`;
                 downloadBtn.style.display = 'inline-block';
             } else {
                 downloadBtn.style.display = 'none';
