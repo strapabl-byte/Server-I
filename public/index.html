@@ -227,7 +227,7 @@
                         heartbeatPath.setAttribute('d', 'M0 50 L1000 50');
                     }
 
-                    // 2. Update Logs - SHOW ONLY LAST 3
+                    // 2. Update Logs
                     const logContainer = document.getElementById('log-container');
                     if (data.logs && data.logs.length > 0) {
                         const displayLogs = data.logs.slice(0, 100); // Show up to 100 recent logs
@@ -237,6 +237,14 @@
                                 <span class="log-message">${escapeHtml(log.message)}</span>
                             </div>
                         `).join('');
+                    } else {
+                        // Better feedback when online but no logs yet (e.g. after a restart/deploy)
+                        logContainer.innerHTML = `
+                            <div class="log-entry">
+                                <span class="log-time">--:--:--</span>
+                                <span class="log-message" style="color: #9CA3AF; font-style: italic;">📡 Connected. Waiting for new activity logs...</span>
+                            </div>
+                        `;
                     }
 
                     // 3. Update Auto-Restart (included in status response now!)
