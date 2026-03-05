@@ -41,6 +41,10 @@
                 <div class="stat-label">Total Restarts</div>
                 <div id="restarts" class="stat-value">0</div>
             </div>
+            <div class="stat-card" style="border-top: 1px solid rgba(239, 68, 68, 0.2);">
+                <div class="stat-label">Last Crash</div>
+                <div id="last-crash" class="stat-value">---</div>
+            </div>
         </div>
 
         <div id="heartbeat-section" class="heartbeat-section">
@@ -191,6 +195,7 @@
                     document.getElementById('restarts').textContent = data.data.total_restarts || '0';
                     document.getElementById('machine-id').textContent = data.data.machineId || '---';
                     document.getElementById('game-name').textContent = data.data.exeName || '---';
+                    document.getElementById('last-crash').textContent = data.data.last_crash_at || '---';
 
                     updateDownloadLink(data.data.machineId);
 
