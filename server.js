@@ -10,6 +10,8 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'somatic-secure-key-2026-v1';
+const LOG_FILE = path.join(__dirname, 'dashboard_logs.json');
+console.log(`[INIT] Persistence file path: ${LOG_FILE}`);
 
 // --- CONFIGURATION & MIDDLEWARE ---
 
@@ -63,6 +65,30 @@ const MAX_LOGS = 100;
 const serverStartTime = Date.now();
 let sessionMachineId = null;
 
+// --- PERSISTENCE HELPERS ---
+
+const loadLogs = () => {
+    try {
+        if (fs.existsSync(LOG_FILE)) {
+            const data = fs.readFileSync(LOG_FILE, 'utf8');
+            eventLogs = JSON.parse(data);
+            console.log(`[INIT] Loaded ${eventLogs.length} logs from disk`);
+        }
+    } catch (err) {
+        console.error('[ERROR] Failed to load persistent logs:', err);
+    }
+};
+
+const saveLogs = () => {
+    try {
+        fs.writeFileSync(LOG_FILE, JSON.stringify(eventLogs, null, 2));
+    } catch (err) {
+        console.error('[ERROR] Failed to save logs to disk:', err);
+    }
+};
+
+loadLogs();
+
 const generateRandomId = () => 'node-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
 // --- ROUTES ---
@@ -88,12 +114,36 @@ app.post('/upload-logs', apiLimiter, authenticate, upload.single('logfile'), (re
         });
 
         if (eventLogs.length > MAX_LOGS) eventLogs = eventLogs.slice(0, MAX_LOGS);
+        saveLogs();
     } catch (err) {
         console.error('[ERROR] Failed to read uploaded log file:', err);
     }
 
     console.log(`[UPLOAD] Log file received: ${req.file.filename}`);
     res.json({ success: true, filename: req.file.filename });
+});
+
+// POST /log - Receive plain text logs from launcher (diagnostics, etc.)
+app.post('/log', apiLimiter, authenticate, (req, res) => {
+    const logText = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    if (!logText) return res.status(400).json({ error: 'Empty log body' });
+
+    // Handle potential multiple lines in one request
+    const lines = logText.split('\n').filter(l => l.trim());
+
+    lines.forEach(line => {
+        eventLogs.unshift({
+            timestamp: new Date().toISOString(),
+            message: line.trim(),
+            time: new Date().toLocaleTimeString(),
+            type: 'diagnostic'
+        });
+    });
+
+    if (eventLogs.length > MAX_LOGS) eventLogs = eventLogs.slice(0, MAX_LOGS);
+    saveLogs();
+
+    res.json({ success: true, count: lines.length });
 });
 
 // POST /update - Receive launcher updates
@@ -146,10 +196,12 @@ app.post('/update', apiLimiter, authenticate, (req, res) => {
             type: eventType
         });
         if (eventLogs.length > MAX_LOGS) eventLogs = eventLogs.slice(0, MAX_LOGS);
+        saveLogs();
     }
 
     res.json({ success: true, received: eventType });
 });
+
 
 // GET /status - Dashboard polling endpoint
 app.get('/status', (req, res) => {
